@@ -4,33 +4,26 @@ import {
   sendEdit,
   sendPresence,
   sendCursor,
+  sendFormat,             // ✅ NEW
   disconnectWebSocket,
 } from '../services/websocket';
 import { debounce, throttle } from '../utils/debounce';
 
-/**
- * useCollaboration
- *
- * Manages WebSocket lifecycle, presence, and cursor broadcasting
- * for a collaborative document session.
- */
 export function useCollaboration({
   documentId,
   username,
   onRemoteEdit,
   onPresenceUpdate,
   onCursorUpdate,
+  onFormatUpdate,         // ✅ NEW
 }) {
   const [connected, setConnected] = useState(false);
-  // Flag to skip re-broadcasting a remote edit back to the server
   const ignoreNextEditRef = useRef(false);
 
-  // Debounced edit broadcaster (300ms) — avoids flooding on every keystroke
   const debouncedSendEdit = useRef(
     debounce((docId, content, user) => sendEdit(docId, content, user), 300)
   ).current;
 
-  // Throttled cursor broadcaster (80ms)
   const throttledSendCursor = useRef(
     throttle((docId, user, pos) => sendCursor(docId, user, pos), 80)
   ).current;
@@ -41,7 +34,6 @@ export function useCollaboration({
     connectWebSocket({
       documentId,
       onEdit: (msg) => {
-        // Don't apply our own edits echoed back
         if (msg.user !== username) {
           ignoreNextEditRef.current = true;
           onRemoteEdit?.(msg);
@@ -55,9 +47,14 @@ export function useCollaboration({
           onCursorUpdate?.(msg);
         }
       },
+      // ✅ NEW: receive format from other users
+      onFormat: (msg) => {
+        if (msg.user !== username) {
+          onFormatUpdate?.(msg);
+        }
+      },
       onConnect: () => {
         setConnected(true);
-        // Announce arrival
         sendPresence(documentId, username, 'JOINED');
       },
       onDisconnect: () => {
@@ -65,9 +62,27 @@ export function useCollaboration({
       },
     });
 
-    // Cleanup: announce departure and close socket
-    return () => {
+    const sendLeft = () => {
       sendPresence(documentId, username, 'LEFT');
+    };
+
+    const handleBeforeUnload = () => {
+      sendLeft();
+      const payload = JSON.stringify({
+        documentId: String(documentId),
+        user: username,
+        status: 'LEFT',
+      });
+      navigator.sendBeacon?.('/api/presence/leave',
+        new Blob([payload], { type: 'application/json' })
+      );
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      sendLeft();
       debouncedSendEdit.cancel?.();
       disconnectWebSocket();
       setConnected(false);
@@ -78,7 +93,7 @@ export function useCollaboration({
     (content) => {
       if (ignoreNextEditRef.current) {
         ignoreNextEditRef.current = false;
-        return; // skip broadcasting a remote-sourced change
+        return;
       }
       debouncedSendEdit(documentId, content, username);
     },
@@ -92,5 +107,13 @@ export function useCollaboration({
     [documentId, username, throttledSendCursor]
   );
 
-  return { broadcastEdit, broadcastCursor, connected, ignoreNextEditRef };
+  // ✅ NEW: broadcast format change to other users
+  const broadcastFormat = useCallback(
+    (type, value, range) => {
+      sendFormat(documentId, username, type, value, range);
+    },
+    [documentId, username]
+  );
+
+  return { broadcastEdit, broadcastCursor, broadcastFormat, connected, ignoreNextEditRef };
 }

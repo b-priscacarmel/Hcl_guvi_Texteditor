@@ -28,6 +28,7 @@ export default function DocumentPage({ username }) {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
+
     getDocument(id)
       .then((doc) => {
         setDocument(doc);
@@ -39,13 +40,17 @@ export default function DocumentPage({ username }) {
         navigate('/');
       })
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, navigate]);
 
   // Auto-save content to DB (debounced 2s)
   const autoSave = useRef(
     debounce(async (docId, newContent, currentTitle, user) => {
       try {
-        await updateDocument(docId, { content: newContent, title: currentTitle, updatedBy: user });
+        await updateDocument(docId, {
+          content: newContent,
+          title: currentTitle,
+          updatedBy: user,
+        });
         setLastSaved(new Date());
       } catch (e) {
         console.error('Auto-save failed', e);
@@ -53,16 +58,22 @@ export default function DocumentPage({ username }) {
     }, 2000)
   ).current;
 
-  const handleContentChange = useCallback((newContent) => {
-    setContent(newContent);
-    autoSave(id, newContent, title, username);
-  }, [id, title, username, autoSave]);
+  const handleContentChange = useCallback(
+    (newContent) => {
+      setContent(newContent);
+      autoSave(id, newContent, title, username);
+    },
+    [id, title, username, autoSave]
+  );
 
   // Debounced title save
   const handleTitleChange = useCallback(
     debounce(async (newTitle) => {
       try {
-        await updateDocument(id, { title: newTitle, updatedBy: username });
+        await updateDocument(id, {
+          title: newTitle,
+          updatedBy: username,
+        });
       } catch (e) {
         console.error('Title save failed', e);
       }
@@ -75,12 +86,19 @@ export default function DocumentPage({ username }) {
     handleTitleChange(val);
   };
 
-  // Manual version save
+  // Manual version save — reads content directly from Quill editor
   const handleSaveVersion = async () => {
     setIsSaving(true);
     try {
-      // First flush current content
-      await updateDocument(id, { content, title, updatedBy: username });
+      const quill = quillRef.current?.getEditor();
+      const latestContent = quill ? quill.root.innerHTML : content;
+
+      await updateDocument(id, {
+        content: latestContent,
+        title,
+        updatedBy: username,
+      });
+
       await saveVersion(id, username);
       toast.success('Version saved! 🎉');
       setLastSaved(new Date());
@@ -94,20 +112,48 @@ export default function DocumentPage({ username }) {
   // Load and show version history
   const handleShowHistory = async () => {
     try {
-      const v = await getVersions(id);
-      setVersions(v);
+      const res = await getVersions(id);
+      console.log("VERSIONS RESPONSE:", res);
+
+      let data = [];
+      if (Array.isArray(res)) {
+        data = res;
+      } else if (Array.isArray(res?.content)) {
+        data = res.content;
+      } else if (Array.isArray(res?.data)) {
+        data = res.data;
+      }
+
+      const safeVersions = data.map((v) => {
+        const { document: _circular, ...version } = v || {};
+        return version;
+      });
+
+      console.log("SAFE VERSIONS:", safeVersions);
+      setVersions(safeVersions);
       setShowHistory(true);
     } catch (e) {
+      console.error('getVersions error:', e);
       toast.error('Could not load history');
     }
   };
 
-  // Restore a version
+  // Restore a version — set content directly into Quill via exposed helper
   const handleRestore = async (version) => {
     const confirmed = window.confirm(`Restore to v${version.versionNumber}?`);
     if (!confirmed) return;
+
     try {
-      await updateDocument(id, { content: version.content, updatedBy: username });
+      await updateDocument(id, {
+        content: version.content,
+        updatedBy: username,
+      });
+
+      // Bypass React state — set HTML directly into Quill
+      if (quillRef.current?.setEditorContent) {
+        quillRef.current.setEditorContent(version.content);
+      }
+
       setContent(version.content);
       setShowHistory(false);
       toast.success(`Restored to v${version.versionNumber}`);
@@ -127,7 +173,6 @@ export default function DocumentPage({ username }) {
 
   return (
     <div className="doc-page">
-      {/* Top Bar */}
       <header className="doc-header">
         <button className="back-btn" onClick={() => navigate('/')}>
           ← Docs
@@ -147,17 +192,18 @@ export default function DocumentPage({ username }) {
               Saved {lastSaved.toLocaleTimeString()}
             </span>
           )}
+
           <button className="history-btn" onClick={handleShowHistory}>
             🕓 History
           </button>
+
           <UserList users={users} currentUser={username} />
         </div>
       </header>
 
-      {/* Editor */}
       <main className="doc-main">
         <Editor
-          key={id} // remount on document change
+          key={id}
           documentId={id}
           username={username}
           initialContent={content}
@@ -169,7 +215,6 @@ export default function DocumentPage({ username }) {
         />
       </main>
 
-      {/* Version history modal */}
       {showHistory && (
         <VersionHistory
           versions={versions}

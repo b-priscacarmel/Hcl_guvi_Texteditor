@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { getAllDocuments, createDocument, deleteDocument } from '../services/api';
@@ -12,18 +12,61 @@ export default function HomePage({ username }) {
   const [newTitle, setNewTitle] = useState('');
   const [showInput, setShowInput] = useState(false);
 
-  const fetchDocs = async () => {
+  const fetchDocs = useCallback(async () => {
     try {
-      const docs = await getAllDocuments();
-      setDocuments(docs);
+      const res = await getAllDocuments();
+      console.log("DOCUMENTS API RESPONSE:", res);
+
+      let docs = [];
+      if (Array.isArray(res)) {
+        docs = res;
+      } else if (Array.isArray(res?.content)) {
+        docs = res.content;
+      } else if (Array.isArray(res?.data)) {
+        docs = res.data;
+      }
+
+      // Safely strip the circular `versions` field only if it exists on each doc
+      const safeDocs = docs.map((doc) => {
+        const { versions, ...rest } = doc || {};
+        return rest;
+      });
+
+      setDocuments(safeDocs);
     } catch (e) {
+      console.error('fetchDocs error:', e);
       toast.error('Could not load documents');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchDocs(); }, []);
+  // Fetch on mount
+  useEffect(() => {
+    fetchDocs();
+  }, [fetchDocs]);
+
+  // ─── KEY FIX ───────────────────────────────────────────────────────────────
+  // React Router does NOT remount HomePage when you navigate back to "/" —
+  // the component is cached, so the mount useEffect never re-runs.
+  // Listening to visibilitychange + focus ensures a fresh fetch every time
+  // the user returns to this page/tab from a document.
+  useEffect(() => {
+    const handleVisible = () => {
+      if (document.visibilityState === 'visible') {
+        fetchDocs();
+      }
+    };
+    const handleFocus = () => fetchDocs();
+
+    document.addEventListener('visibilitychange', handleVisible);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisible);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [fetchDocs]);
 
   const handleCreate = async () => {
     if (!newTitle.trim()) { toast.error('Enter a title'); return; }

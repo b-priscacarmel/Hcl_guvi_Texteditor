@@ -3,12 +3,11 @@ import SockJS from 'sockjs-client';
 
 let stompClient = null;
 
-/**
- * Connect to the STOMP WebSocket and subscribe to document topics.
- */
-export function connectWebSocket({ documentId, onEdit, onPresence, onCursor, onConnect, onDisconnect }) {
+const WS_BASE = import.meta.env.VITE_API_BASE || '';
+
+export function connectWebSocket({ documentId, onEdit, onPresence, onCursor, onFormat, onConnect, onDisconnect }) {
   stompClient = new Client({
-    webSocketFactory: () => new SockJS('/ws'),
+    webSocketFactory: () => new SockJS(`${WS_BASE}/ws`),
     reconnectDelay: 5000,
     debug: (str) => {
       if (import.meta.env.DEV) console.debug('[STOMP]', str);
@@ -16,7 +15,6 @@ export function connectWebSocket({ documentId, onEdit, onPresence, onCursor, onC
     onConnect: () => {
       console.log('[WS] Connected');
 
-      // Subscribe to document edits
       stompClient.subscribe(`/topic/document/${documentId}`, (message) => {
         try {
           const payload = JSON.parse(message.body);
@@ -26,7 +24,6 @@ export function connectWebSocket({ documentId, onEdit, onPresence, onCursor, onC
         }
       });
 
-      // Subscribe to presence updates
       stompClient.subscribe(`/topic/presence/${documentId}`, (message) => {
         try {
           const payload = JSON.parse(message.body);
@@ -36,13 +33,22 @@ export function connectWebSocket({ documentId, onEdit, onPresence, onCursor, onC
         }
       });
 
-      // Subscribe to cursor updates
       stompClient.subscribe(`/topic/cursor/${documentId}`, (message) => {
         try {
           const payload = JSON.parse(message.body);
           onCursor?.(payload);
         } catch (e) {
           console.error('[WS] Cursor parse error', e);
+        }
+      });
+
+      // ✅ NEW: Subscribe to format topic
+      stompClient.subscribe(`/topic/format/${documentId}`, (message) => {
+        try {
+          const payload = JSON.parse(message.body);
+          onFormat?.(payload);
+        } catch (e) {
+          console.error('[WS] Format parse error', e);
         }
       });
 
@@ -61,9 +67,6 @@ export function connectWebSocket({ documentId, onEdit, onPresence, onCursor, onC
   return stompClient;
 }
 
-/**
- * Send an edit message to /app/edit
- */
 export function sendEdit(documentId, content, user) {
   if (stompClient?.connected) {
     stompClient.publish({
@@ -78,10 +81,6 @@ export function sendEdit(documentId, content, user) {
   }
 }
 
-/**
- * Send a presence message to /app/presence
- * status: 'JOINED' | 'LEFT' | 'ACTIVE'
- */
 export function sendPresence(documentId, user, status) {
   if (stompClient?.connected) {
     stompClient.publish({
@@ -95,9 +94,6 @@ export function sendPresence(documentId, user, status) {
   }
 }
 
-/**
- * Send a cursor position message to /app/cursor
- */
 export function sendCursor(documentId, user, position) {
   if (stompClient?.connected) {
     stompClient.publish({
@@ -111,9 +107,22 @@ export function sendCursor(documentId, user, position) {
   }
 }
 
-/**
- * Disconnect the STOMP client
- */
+// ✅ NEW: Send format change to other users
+export function sendFormat(documentId, user, type, value, range) {
+  if (stompClient?.connected) {
+    stompClient.publish({
+      destination: '/app/format',
+      body: JSON.stringify({
+        documentId: String(documentId),
+        user,
+        type,
+        value,
+        range,
+      }),
+    });
+  }
+}
+
 export function disconnectWebSocket() {
   if (stompClient) {
     stompClient.deactivate();
@@ -124,3 +133,4 @@ export function disconnectWebSocket() {
 export function isConnected() {
   return stompClient?.connected ?? false;
 }
+

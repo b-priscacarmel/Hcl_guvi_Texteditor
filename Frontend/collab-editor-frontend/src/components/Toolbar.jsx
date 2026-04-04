@@ -1,12 +1,17 @@
 import React from 'react';
 
 export default function Toolbar({ quillRef, onSaveVersion, isSaving, documentTitle, onTitleChange }) {
-  const format = (type, value = true) => {
+
+  const format = (type) => {
     const quill = quillRef?.current?.getEditor();
     if (!quill) return;
-    const format = quill.getFormat();
-    quill.format(type, !format[type]);
+    const currentFormat = quill.getFormat();
+    const newValue = !currentFormat[type];
+    quill.format(type, newValue);
     quill.focus();
+
+    // ✅ Broadcast to other users via quillRef
+    quillRef.current?.broadcastFormat?.(type, newValue, quill.getSelection());
   };
 
   const formatAlign = (value) => {
@@ -14,6 +19,9 @@ export default function Toolbar({ quillRef, onSaveVersion, isSaving, documentTit
     if (!quill) return;
     quill.format('align', value);
     quill.focus();
+
+    // ✅ Broadcast to other users via quillRef
+    quillRef.current?.broadcastFormat?.('align', value, quill.getSelection());
   };
 
   return (

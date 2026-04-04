@@ -1,8 +1,11 @@
 import axios from 'axios';
 
-const BASE = '/api';
+// In production (Vercel), VITE_API_BASE points to your Railway backend URL
+// e.g. https://your-app.up.railway.app
+// In local dev it's empty string so the Vite proxy handles /api → localhost:8080
+const BASE = `${import.meta.env.VITE_API_BASE || ''}/api`;
 
-// ─── Document APIs ───────────────────────────────────────────────────────────
+// ─── Document APIs ────────────────────────────────────────────────
 
 export const createDocument = (title, createdBy) =>
   axios.post(`${BASE}/documents`, { title, createdBy }).then(r => r.data);
@@ -19,7 +22,7 @@ export const updateDocument = (id, body) =>
 export const deleteDocument = (id) =>
   axios.delete(`${BASE}/documents/${id}`);
 
-// ─── Version APIs ─────────────────────────────────────────────────────────────
+// ─── Version APIs ─────────────────────────────────────────────────
 
 export const saveVersion = (id, savedBy) =>
   axios.post(`${BASE}/documents/${id}/versions`, { savedBy }).then(r => r.data);
@@ -27,7 +30,7 @@ export const saveVersion = (id, savedBy) =>
 export const getVersions = (id) =>
   axios.get(`${BASE}/documents/${id}/versions`).then(r => r.data);
 
-// ─── Presence REST fallback ───────────────────────────────────────────────────
+// ─── Presence REST fallback ───────────────────────────────────────
 
 export const getActiveUsers = (id) =>
   axios.get(`${BASE}/documents/${id}/users`).then(r => r.data);
