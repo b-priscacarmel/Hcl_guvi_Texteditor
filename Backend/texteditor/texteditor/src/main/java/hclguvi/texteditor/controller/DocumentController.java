@@ -21,10 +21,7 @@ public class DocumentController {
 
     private final DocumentService documentService;
 
-    /**
-     * POST /api/documents
-     * Body: { "title": "My Doc", "createdBy": "romia" }
-     */
+
     @PostMapping
     public ResponseEntity<Document> createDocument(@RequestBody Map<String, String> body) {
         String title = body.getOrDefault("title", "Untitled Document");
@@ -52,10 +49,6 @@ public class DocumentController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    /**
-     * PUT /api/documents/{id}
-     * Body: { "content": "...", "title": "...", "updatedBy": "romia" }
-     */
     @PutMapping("/{id}")
     public ResponseEntity<Document> updateDocument(
             @PathVariable Long id,
@@ -112,5 +105,14 @@ public class DocumentController {
     @GetMapping("/{id}/versions")
     public ResponseEntity<List<DocumentVersion>> getVersions(@PathVariable Long id) {
         return ResponseEntity.ok(documentService.getVersions(id));
+    }
+    @PutMapping("/{documentId}/restore/{versionId}")
+    public ResponseEntity<Document> restoreVersion(
+            @PathVariable Long documentId,
+            @PathVariable Long versionId) {
+
+        return ResponseEntity.ok(
+                documentService.restoreVersion(documentId, versionId)
+        );
     }
 }

@@ -1,6 +1,6 @@
 package hclguvi.texteditor.service;
 
-
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import hclguvi.texteditor.model.Document;
 import hclguvi.texteditor.model.DocumentVersion;
 import hclguvi.texteditor.repository.DocumentRepository;
@@ -20,6 +20,7 @@ public class DocumentService {
 
     private final DocumentRepository documentRepository;
     private final VersionRepository versionRepository;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Transactional
     public Document createDocument(String title, String createdBy) {
@@ -86,5 +87,32 @@ public class DocumentService {
     @Transactional
     public void deleteDocument(Long id) {
         documentRepository.deleteById(id);
+    }
+    @Transactional
+    public Document restoreVersion(Long documentId, Long versionId) {
+
+        Document doc = documentRepository.findById(documentId)
+                .orElseThrow(() -> new RuntimeException("Document not found: " + documentId));
+
+        DocumentVersion version = versionRepository.findById(versionId)
+                .orElseThrow(() -> new RuntimeException("Version not found: " + versionId));
+
+        // 1️⃣ Update document content
+        doc.setContent(version.getContent());
+        Document updated = documentRepository.save(doc);
+
+        log.info("Restored document {} to version {}", documentId, version.getVersionNumber());
+
+        // 2️⃣ 🔥 Broadcast to all connected users
+        messagingTemplate.convertAndSend(
+                "/topic/document/" + documentId,
+                java.util.Map.of(
+                        "documentId", documentId,
+                        "content", updated.getContent(),
+                        "type", "RESTORE"
+                )
+        );
+
+        return updated;
     }
 }
